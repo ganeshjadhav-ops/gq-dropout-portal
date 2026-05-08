@@ -47,9 +47,9 @@ const {useState,useEffect,useCallback,useMemo}=React;
 
 /* ─── CONFIG ────────────────────────────────────────────── */
 const S1_ID="1FvGTH4IOzoDr6PNBKLfWVENBhevuQDrt2uy8yOwNsZ8";
-const S1_GID="1673754867";
+const S1_GID="0"; // DISB Dump tab — gid=0
 const S2_ID="1A6G7GZCKHnmxP9mLcDXmHfFhTSXwA-1AqfphBkCzTYA";
-const S2_GID="1735443090";
+const S2_GID="491266174"; // DATA tab — gid=491266174
 // PD Sheet column indices (0-based): A=0, S=18, V=21
 const COL_APPID=0, COL_BOUNCE=18, COL_EMIS=21;
 
@@ -302,18 +302,21 @@ function CalcTab({session,onHist}){
         return dr[`_col${idx}`]||def;
       };
 
-      /* Map DISB Dump columns — try header names first, fallback to column index */
-      const studentName=gc(['Student Name','student_name','Name'],1);
-      const loanAmount=parseFloat(gc(['Tranche Amount','Loan Amount','tranche_amount','Amount'],2))||0;
-      const disbDate=gc(['Loan Live Date (MM/DD/YYYY)','Loan Live Date','Disbursement Date','Live Date'],3);
-      const numEMIs=parseInt(gc(['Number of EMIs','No of EMIs','Total EMIs','EMIs'],4))||0;
+      /* DISB Dump columns (confirmed from screenshot):
+         A=App ID, B=Student Name, C=Tranche Amount, D=Loan Live Date,
+         E=Number of EMIs, F=Advance EMIs, G=Net Tenure, H=Discount Rate,
+         I=Total Regular Int Rate, J=FLDG %, K=Group Name, L=NBFC/Lender... */
+      const studentName=gc(['Student Name','Name of Student'],1);
+      const loanAmount=parseFloat(gc(['Tranche Amount','Loan Amount'],2))||0;
+      const disbDate=gc(['Loan Live Date','Loan Live Date (MM/DD/YYYY)','Disbursement Date'],3);
+      const numEMIs=parseInt(gc(['Number of EMIs','No of EMIs','Total EMIs'],4))||0;
       const advanceEMIs=parseInt(gc(['Advance EMIs','Advance EMI','Adv EMI'],5))||0;
-      const discountRate=parseFloat(gc(['Discount Rate','Discount %','discount_rate'],7))||0;
-      const fldgRate=parseFloat(gc(['FLDG %','FLDG','Retention %','fldg_rate'],9))||0;
-      const groupName=gc(['Group Name','group_name','School','Institution'],10);
-      const lender=gc(['NBFC / Lender','Lender','NBFC','lender_name'],11);
-      const parentName=gc(['Parent Name','parent_name','Guardian'],13);
-      const regularIntAmt=parseFloat(gc(['Regular Interest amount','Regular Interest','Int Amount'],14))||0;
+      const discountRate=parseFloat(gc(['Discount Rate','Discount %'],7))||0;
+      const fldgRate=parseFloat(gc(['FLDG %','FLDG','Retention %'],9))||0;
+      const groupName=gc(['Group Name','School','Institution'],10);
+      const lender=gc(['NBFC / Lender','Lender','NBFC'],11);
+      const parentName=gc(['Parent Name','parent_name'],12);
+      const regularIntAmt=parseFloat(gc(['Regular Interest amount','Regular Interest'],13))||0;
 
       /* Step 2: PD / DATA sheet */
       sM('📡 Fetching payment records...');
