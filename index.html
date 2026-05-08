@@ -114,8 +114,38 @@ async function fetchSheet(sheetId,gid){
 
 function findRow(rows,appId){
   const id=appId.toString().trim();
-  for(let i=1;i<rows.length;i++)
-    if(rows[i]&&rows[i][COL_APPID]?.toString().trim()===id)return rows[i];
+  const idN=parseInt(id);
+  // Search ALL rows (handles 1 or 2 header rows, and numeric format like 1247543.0)
+  for(let i=0;i<rows.length;i++){
+    const cell=rows[i]&&rows[i][COL_APPID];
+    if(!cell)continue;
+    const cs=cell.toString().trim().replace(/\.0+$/,'');
+    if(cs===id||parseInt(cs)===idN)return rows[i];
+  }
+  return null;
+}
+
+// Header-aware row finder for DISB Dump (finds header row first, then maps by column name)
+function findDisbRow(rows,appId){
+  const id=appId.toString().trim();
+  const idN=parseInt(id);
+  // First scan all rows looking for App ID match in col 0
+  for(let i=0;i<rows.length;i++){
+    const cell=rows[i]&&rows[i][0];
+    if(!cell)continue;
+    const cs=cell.toString().trim().replace(/\.0+$/,'');
+    if(cs===id||parseInt(cs)===idN){
+      // Found data row — now find header row above it
+      let headerIdx=i-1;
+      while(headerIdx>=0&&(!rows[headerIdx]||!rows[headerIdx][0]||parseInt(rows[headerIdx][0])>0))headerIdx--;
+      const headerRow=rows[Math.max(0,headerIdx)]||[];
+      const obj={_row:rows[i],_header:headerRow};
+      headerRow.forEach((h,idx)=>{if(h)obj[h.toString().trim()]=rows[i][idx];});
+      // Also store raw by index
+      rows[i].forEach((v,idx)=>{obj[`_col${idx}`]=v;});
+      return obj;
+    }
+  }
   return null;
 }
 
@@ -263,32 +293,46 @@ function CalcTab({session,onHist}){
       let disbRows;
       try{disbRows=await fetchSheet(S1_ID,S1_GID);}
       catch(e){throw new Error('DISB Dump unreachable. Ensure Google Sheet is set to "Anyone with link can view".');}
-      const dr=findRow(disbRows,appId);
-      if(!dr)throw new Error(`App ID "${appId}" not found in DISB Dump.`);
+      const dr=findDisbRow(disbRows,appId);
+      if(!dr)throw new Error(`App ID "${appId}" not found in DISB Dump. Please verify:\n1. App ID is correct\n2. Google Sheet is set to "Anyone with link can view"\n3. App ID exists in DISB Dump sheet`);
 
-      /* Map DISB Dump columns (from Excel DD sheet structure) */
-      const studentName=dr[1]||'';
-      const loanAmount=parseFloat(dr[2])||0;
-      const disbDate=dr[3]||'';
-      const numEMIs=parseInt(dr[4])||0;
-      const advanceEMIs=parseInt(dr[5])||0;
-      const discountRate=parseFloat(dr[7])||0;
-      const regularIntRate=parseFloat(dr[8])||0;
-      const fldgRate=parseFloat(dr[9])||0;
-      const groupName=dr[10]||'';
-      const lender=dr[11]||'';
-      const parentName=dr[13]||'';
-      const regularIntAmt=parseFloat(dr[14])||0;
+      // Helper: try named header column first, fallback to index
+      const gc=(names,idx,def='')=>{
+        for(const n of names){if(dr[n]!==undefined&&dr[n]!==null&&dr[n]!=='')return dr[n];}
+        return dr[`_col${idx}`]||def;
+      };
+
+      /* Map DISB Dump columns — try header names first, fallback to column index */
+      const studentName=gc(['Student Name','student_name','Name'],1);
+      const loanAmount=parseFloat(gc(['Tranche Amount','Loan Amount','tranche_amount','Amount'],2))||0;
+      const disbDate=gc(['Loan Live Date (MM/DD/YYYY)','Loan Live Date','Disbursement Date','Live Date'],3);
+      const numEMIs=parseInt(gc(['Number of EMIs','No of EMIs','Total EMIs','EMIs'],4))||0;
+      const advanceEMIs=parseInt(gc(['Advance EMIs','Advance EMI','Adv EMI'],5))||0;
+      const discountRate=parseFloat(gc(['Discount Rate','Discount %','discount_rate'],7))||0;
+      const fldgRate=parseFloat(gc(['FLDG %','FLDG','Retention %','fldg_rate'],9))||0;
+      const groupName=gc(['Group Name','group_name','School','Institution'],10);
+      const lender=gc(['NBFC / Lender','Lender','NBFC','lender_name'],11);
+      const parentName=gc(['Parent Name','parent_name','Guardian'],13);
+      const regularIntAmt=parseFloat(gc(['Regular Interest amount','Regular Interest','Int Amount'],14))||0;
 
       /* Step 2: PD / DATA sheet */
       sM('📡 Fetching payment records...');
       let emisPaid=0,bounce=0;
       try{
         const pdRows=await fetchSheet(S2_ID,S2_GID);
-        const pr=findRow(pdRows,appId);
-        if(pr){
-          emisPaid=parseInt(pr[COL_EMIS])||0;
-          bounce=parseFloat(pr[COL_BOUNCE])||0;
+        // Search all rows for App ID match in col A (index 0)
+        const id=appId.toString().trim();
+        const idN=parseInt(id);
+        for(let i=0;i<pdRows.length;i++){
+          const cell=pdRows[i]&&pdRows[i][0];
+          if(!cell)continue;
+          const cs=cell.toString().trim().replace(/\.0+$/,'');
+          if(cs===id||parseInt(cs)===idN){
+            const pr=pdRows[i];
+            emisPaid=parseInt(pr[COL_EMIS]?.toString().replace(/\.0+$/,''))||0;
+            bounce=parseFloat(pr[COL_BOUNCE])||0;
+            break;
+          }
         }
       }catch(e){console.warn('PD fetch:',e.message);}
 
